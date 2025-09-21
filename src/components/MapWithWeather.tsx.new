@@ -1,0 +1,281 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { Loader } from '@googlemaps/js-api-loader';
+
+// Type definitions
+interface Position {
+  lat: number;
+  lng: number;
+}
+
+interface Weather {
+  main: {
+    temp: number;
+    feels_like: number;
+    humidity: number;
+    pressure: number;
+  };
+  weather: Array<{
+    description: string;
+    icon: string;
+  }>;
+  name: string;
+  sys: {
+    country: string;
+  };
+  wind: {
+    speed: number;
+  };
+}
+
+interface MarkerProps {
+  position: Position;
+  title?: string;
+  type?: 'police' | 'tourism' | 'user';
+}
+
+interface MapWithWeatherProps {
+  center?: Position;
+  zoom?: number;
+  markers?: MarkerProps[];
+}
+
+const DEFAULT_CENTER: Position = { lat: 28.6139, lng: 77.2090 }; // New Delhi
+const DEFAULT_ZOOM = 12;
+
+const MapWithWeather: React.FC<MapWithWeatherProps> = ({ 
+  center = DEFAULT_CENTER,
+  zoom = DEFAULT_ZOOM,
+  markers: initialMarkers = []
+}) => {
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [map, setMap] = useState<google.maps.Map | null>(null);
+  const [weather, setWeather] = useState<Weather | null>(null);
+  const [currentPosition, setCurrentPosition] = useState<Position | null>(null);
+  const mapRef = useRef<HTMLDivElement>(null);
+
+  const getMarkerIcon = useCallback((type: string): string => {
+    const icons = {
+      police: 'https://maps.gstatic.com/mapfiles/ms2/micons/blue-pushpin.png',
+      tourism: 'https://maps.gstatic.com/mapfiles/ms2/micons/red-pushpin.png',
+      user: 'https://maps.gstatic.com/mapfiles/ms2/micons/grn-pushpin.png'
+    };
+    return icons[type as keyof typeof icons] || icons.user;
+  }, []);
+
+  const fetchWeatherData = useCallback(async (lat: number, lng: number) => {
+    const apiKey = import.meta.env.VITE_WEATHER_API_KEY;
+    if (!apiKey) {
+      console.error('Weather API key is not configured');
+      setError('Weather service is not properly configured');
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&appid=${apiKey}&units=metric`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch weather data');
+      }
+      
+      const data = await response.json();
+      setWeather(data);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching weather data:', err);
+      setError('Failed to load weather data. Please try again later.');
+    }
+  }, []);
+
+  const initializeMap = useCallback(async () => {
+    if (!mapRef.current) return;
+
+    try {
+      setLoading(true);
+      const loader = new Loader({
+        apiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
+        version: "weekly",
+        libraries: ["places"]
+      });
+
+      const google = await loader.load();
+      const mapInstance = new google.maps.Map(mapRef.current, {
+        center: currentPosition || center,
+        zoom,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        zoomControl: true
+      });
+
+      setMap(mapInstance);
+
+      // Add click listener to the map
+      mapInstance.addListener('click', (e: google.maps.MapMouseEvent) => {
+        if (e.latLng) {
+          const position = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+          fetchWeatherData(position.lat, position.lng);
+        }
+      });
+
+      // Try to get current location
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const pos = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            };
+            setCurrentPosition(pos);
+            mapInstance.setCenter(pos);
+            fetchWeatherData(pos.lat, pos.lng);
+          },
+          (error) => {
+            console.error('Error getting location:', error);
+            setError('Unable to retrieve your location. Using default location.');
+            fetchWeatherData(center.lat, center.lng);
+          },
+          { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        );
+      } else {
+        setError('Geolocation is not supported by your browser. Using default location.');
+        fetchWeatherData(center.lat, center.lng);
+      }
+
+      // Add markers
+      if (initialMarkers && initialMarkers.length > 0) {
+        initialMarkers.forEach(marker => {
+          new google.maps.Marker({
+            position: marker.position,
+            map: mapInstance,
+            title: marker.title || '',
+            icon: marker.type ? getMarkerIcon(marker.type) : undefined
+          });
+        });
+      }
+
+      setLoading(false);
+    } catch (err) {
+      console.error('Error initializing map:', err);
+      setError('Failed to load Google Maps. Please check your API key and try again.');
+      setLoading(false);
+    }
+  }, [center, zoom, initialMarkers, currentPosition, fetchWeatherData, getMarkerIcon]);
+
+  useEffect(() => {
+    initializeMap();
+  }, [initializeMap]);
+
+  if (error) {
+    return (
+      <div className="h-96 w-full flex items-center justify-center bg-red-50 rounded-lg p-4">
+        <div className="text-center">
+          <p className="text-red-500 font-semibold">Error</p>
+          <p className="text-red-600">{error}</p>
+          <p className="text-sm text-gray-600 mt-2">Please check your API keys and try again</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full w-full flex flex-col md:flex-row">
+      {/* Map Container */}
+      <div className="h-96 md:h-full md:w-2/3">
+        <div 
+          ref={mapRef} 
+          className="h-full w-full rounded-lg shadow-lg border border-gray-200"
+          aria-label="Interactive map"
+        >
+          {loading && (
+            <div className="h-full w-full flex items-center justify-center bg-white bg-opacity-80 absolute top-0 left-0 z-10">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-2"></div>
+                <p className="text-gray-600">Loading map...</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Weather Sidebar */}
+      <div className="md:w-1/3 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg ml-0 md:ml-4 mt-4 md:mt-0">
+        <div className="flex items-center mb-6">
+          <div className="w-6 h-6 text-blue-500 mr-2">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M5.5 15a1 1 0 01.17 1.99A7 7 0 109 3.07V3a1 1 0 112 0v.3a7 7 0 013.5 1.5 1 1 0 11-1.4 1.42 5 5 0 10-3.2 8.77 1 1 0 01-.5.92 1 1 0 01-1-.08 1 1 0 01-.4-1.32 3 3 0 10-3.72-4.61 1 1 0 11-1.94-.5 5 5 0 012.37-6.08 1 1 0 011.37.37 1 1 0 01-.37 1.36 3 3 0 00-1.4 3.97 1 1 0 01-.17 1.1 1 1 0 01-.8.35z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-semibold">Weather Information</h3>
+        </div>
+        
+        {weather ? (
+          <div className="space-y-6">
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-4xl font-bold text-gray-900 dark:text-white">
+                    {Math.round(weather.main.temp)}°C
+                  </h4>
+                  <p className="text-gray-600 dark:text-gray-300 capitalize text-lg">
+                    {weather.weather[0].description}
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    {weather.name}, {weather.sys.country}
+                  </p>
+                </div>
+                <img
+                  src={`https://openweathermap.org/img/wn/${weather.weather[0].icon}@4x.png`}
+                  alt={weather.weather[0].description}
+                  className="w-24 h-24 -mr-2"
+                  width={96}
+                  height={96}
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="bg-white dark:bg-gray-700 p-3 rounded-lg shadow">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Feels Like</p>
+                  <p className="font-medium text-lg">{Math.round(weather.main.feels_like)}°C</p>
+                </div>
+                <div className="bg-white dark:bg-gray-700 p-3 rounded-lg shadow">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Humidity</p>
+                  <p className="font-medium text-lg">{weather.main.humidity}%</p>
+                </div>
+                <div className="bg-white dark:bg-gray-700 p-3 rounded-lg shadow">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Wind</p>
+                  <p className="font-medium text-lg">{weather.wind.speed} m/s</p>
+                </div>
+                <div className="bg-white dark:bg-gray-700 p-3 rounded-lg shadow">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Pressure</p>
+                  <p className="font-medium text-lg">{weather.main.pressure} hPa</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-2 text-center">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Click anywhere on the map to check weather
+              </p>
+              {error && (
+                <p className="text-red-500 text-sm mt-2">{error}</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <div className="animate-pulse flex flex-col items-center">
+              <div className="h-16 w-16 bg-gray-200 dark:bg-gray-700 rounded-full mb-2"></div>
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-2"></div>
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default MapWithWeather;
