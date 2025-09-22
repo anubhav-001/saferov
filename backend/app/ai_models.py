@@ -16,6 +16,8 @@ from sklearn.preprocessing import StandardScaler
 import joblib
 from .config import settings
 from shapely.geometry import Point, Polygon
+from .services.ncrb_service import ncrb_service
+from .services.weather_service import weather_service
 
 # Computer Vision imports
 try:
@@ -241,13 +243,22 @@ class TouristSafetyScoreModel:
     self.model = RandomForestClassifier(n_estimators=100, random_state=42)
     self.scaler = StandardScaler()
     self.is_trained = False
+    self.ncrb_service = ncrb_service
+    self.weather_service = weather_service
     
   def prepare_features(self, tourist_data):
-    """Prepare features for safety score prediction"""
+    """Prepare features for safety score prediction with NCRB and Weather integration"""
     features = []
     
-    # Location risk score (1-10)
+    # Get NCRB crime data for location
+    ncrb_risk_score = self._get_ncrb_risk_score(tourist_data)
+    
+    # Get weather data for location
+    weather_safety_score = self._get_weather_safety_score(tourist_data)
+    
+    # Location risk score (1-10) - now enhanced with NCRB data
     location_risk = tourist_data.get('location_risk', 5)
+    enhanced_location_risk = (location_risk + ncrb_risk_score) / 2
     
     # Time of day risk (higher at night)
     hour = datetime.now().hour
@@ -265,10 +276,124 @@ class TouristSafetyScoreModel:
     planned = tourist_data.get('has_itinerary', False)
     planning_risk = 3 if planned else 7
     
-    features = [location_risk, time_risk, group_risk, exp_risk, planning_risk,
-               tourist_data.get('age', 30), tourist_data.get('health_score', 8)]
+    # Age factor
+    age = tourist_data.get('age', 30)
+    age_risk = 8 if age < 25 or age > 65 else 5  # Higher risk for very young/old
+    
+    # Health score
+    health_score = tourist_data.get('health_score', 8)
+    health_risk = 10 - health_score  # Invert health score to risk
+    
+    # Enhanced features with NCRB and Weather data
+    features = [
+      enhanced_location_risk,  # Enhanced with NCRB data
+      ncrb_risk_score,        # Direct NCRB risk score
+      weather_safety_score,   # Weather-based safety score
+      time_risk,
+      group_risk,
+      exp_risk,
+      planning_risk,
+      age_risk,
+      health_risk,
+      tourist_data.get('latitude', 0),  # Geographic coordinates
+      tourist_data.get('longitude', 0)
+    ]
     
     return np.array(features).reshape(1, -1)
+  
+  def _get_ncrb_risk_score(self, tourist_data):
+    """Get NCRB-based risk score for the location"""
+    try:
+      # Extract location information
+      location_info = {
+        'state': tourist_data.get('state', 'Unknown'),
+        'district': tourist_data.get('district'),
+        'latitude': tourist_data.get('latitude'),
+        'longitude': tourist_data.get('longitude')
+      }
+      
+      # Get comprehensive safety data from NCRB
+      safety_data = self.ncrb_service.get_comprehensive_safety_data(location_info)
+      
+      # Extract risk score
+      risk_score = safety_data.get('calculated_risk_score', 5.0)
+      
+      # Additional factors from NCRB data
+      crime_stats = safety_data.get('crime_statistics', {})
+      trends = safety_data.get('crime_trends', {})
+      
+      # Adjust risk based on crime trends
+      trend_direction = trends.get('trend_direction', 'stable')
+      if trend_direction == 'increasing':
+        risk_score *= 1.2
+      elif trend_direction == 'decreasing':
+        risk_score *= 0.8
+      
+      # Adjust based on crime density
+      crime_rate = crime_stats.get('crime_rate_per_100k', 200)
+      if crime_rate > 300:
+        risk_score *= 1.3
+      elif crime_rate < 100:
+        risk_score *= 0.7
+      
+      return min(10, max(1, risk_score))
+      
+    except Exception as e:
+      print(f"Error getting NCRB risk score: {e}")
+      return 5.0  # Default moderate risk
+  
+  def _get_weather_safety_score(self, tourist_data):
+    """Get weather-based safety score for the location"""
+    try:
+      # Extract location information
+      location_info = self._get_location_string(tourist_data)
+      
+      # Get weather safety analysis
+      weather_analysis = self.weather_service.calculate_weather_safety_score(location_info)
+      
+      # Extract weather safety score (convert to risk score)
+      weather_safety_score = weather_analysis.get('weather_safety_score', 7.0)
+      weather_risk_score = 10 - weather_safety_score  # Convert safety to risk
+      
+      # Additional weather factors
+      weather_conditions = weather_analysis.get('weather_conditions', {})
+      alerts = weather_analysis.get('alerts', [])
+      
+      # Adjust risk based on weather alerts
+      if alerts:
+        high_alert_count = sum(1 for alert in alerts if alert.get('safety_level', 0) > 7)
+        if high_alert_count > 0:
+          weather_risk_score *= 1.3
+      
+      # Adjust based on extreme weather conditions
+      conditions = weather_conditions.get('conditions', 'Clear')
+      if 'Thunderstorm' in conditions or 'Heavy Rain' in conditions:
+        weather_risk_score *= 1.2
+      
+      return min(10, max(1, weather_risk_score))
+      
+    except Exception as e:
+      print(f"Error getting weather safety score: {e}")
+      return 5.0  # Default moderate risk
+  
+  def _get_location_string(self, tourist_data):
+    """Convert tourist data to location string for weather API"""
+    latitude = tourist_data.get('latitude')
+    longitude = tourist_data.get('longitude')
+    
+    if latitude and longitude:
+      return f"{latitude},{longitude}"
+    
+    # Fallback to city/state
+    city = tourist_data.get('city', '')
+    state = tourist_data.get('state', '')
+    
+    if city and state:
+      return f"{city},{state}"
+    elif state:
+      return state
+    else:
+      return "Delhi,India"  # Default location
   
   def train_model(self, training_data):
     """Train the safety score model"""

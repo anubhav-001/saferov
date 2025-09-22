@@ -1,6 +1,6 @@
 from fastapi import FastAPI, WebSocket, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.endpoints import translation
+from app.api.endpoints import translation, ncrb_safety, weather_safety, tourist_heatmap
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 from datetime import datetime
@@ -21,6 +21,24 @@ app.include_router(
     translation.router,
     prefix="/api/translation",
     tags=["translation"]
+)
+
+# Include NCRB safety router
+app.include_router(
+    ncrb_safety.router,
+    tags=["NCRB Integration"]
+)
+
+# Include weather safety router
+app.include_router(
+    weather_safety.router,
+    tags=["Weather Integration"]
+)
+
+# Include tourist heat map router
+app.include_router(
+    tourist_heatmap.router,
+    tags=["Tourist Heat Map"]
 )
 
 # CORS for local dev

@@ -197,49 +197,57 @@ const FeaturesSection = () => {
           </motion.p>
         </motion.div>
 
-        {/* Features Timeline - style only, content unchanged */}
+        {/* Features Grid - TRUE side-by-side alternating layout */}
         <div className="relative">
           <div className="hidden lg:block absolute left-1/2 top-0 bottom-0 -translate-x-1/2 w-1 bg-accent/30 rounded-full" />
-          <div className="space-y-16">
+          <div className="space-y-32">
             {features.map((feature, index) => (
               <motion.div
                 key={feature.title}
                 initial={{ opacity: 0, y: 30 }}
                 animate={isInView ? { opacity: 1, y: 0 } : {}}
                 transition={{ duration: 0.8, delay: feature.delay }}
-                className="grid grid-cols-1 lg:grid-cols-2 items-center gap-10"
+                className="w-full"
               >
-                {/* Card with title/description */}
-                <div className={`${index % 2 === 0 ? 'lg:col-start-1' : 'lg:col-start-2'} order-2 lg:order-none`}>
-                  <div className="glass-card rounded-2xl p-6 border border-accent/20 text-center lg:text-left">
-                    <h3 className="text-3xl md:text-4xl font-bold mb-4">
-                      <span className="gradient-text">{feature.title}</span>
-                    </h3>
-                    <p className="text-lg text-muted-foreground leading-relaxed">{feature.description}</p>
+                {/* TRUE side-by-side layout */}
+                <div className={`flex flex-col lg:flex-row items-center justify-center gap-8 lg:gap-16 ${index % 2 === 0 ? 'lg:flex-row' : 'lg:flex-row-reverse'}`}>
+                  {/* Text Content */}
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="glass-card rounded-2xl p-8 border border-accent/20 text-center lg:text-left max-w-md w-full">
+                      <h3 className="text-3xl md:text-4xl font-bold mb-6">
+                        <span className="gradient-text">{feature.title}</span>
+                      </h3>
+                      <p className="text-lg text-muted-foreground leading-relaxed">{feature.description}</p>
+                    </div>
                   </div>
-                </div>
-                {/* Lottie Animation or Image/Icon bubble */}
-                <div className={`${index % 2 === 0 ? 'lg:col-start-2' : 'lg:col-start-1'} order-1 lg:order-none flex items-center justify-center ${feature.animOffsetClass || ''}`}>
-                  {feature.lottieUrl ? (
-                    <div className="w-72 h-72 flex items-center justify-center">
-                      <dotlottie-wc 
-                        src={feature.lottieUrl} 
-                        style={{width: '300px', height: '300px', backgroundColor: 'transparent'}} 
-                        speed="1" 
-                        autoplay 
-                        loop
-                        background="transparent"
-                      ></dotlottie-wc>
-                    </div>
-                  ) : feature.imageUrl ? (
-                    <div className="w-72 h-72 flex items-center justify-center">
-                      <img src={feature.imageUrl} alt={feature.title} className="w-[300px] h-[300px] object-contain" />
-                    </div>
-                  ) : (
-                    <div className="w-16 h-16 rounded-full bg-accent text-accent-foreground flex items-center justify-center shadow-lg">
-                      <feature.icon className="w-7 h-7" />
-                    </div>
-                  )}
+                  
+                  {/* Visual Content */}
+                  <div className="flex-1 flex items-center justify-center">
+                    {feature.lottieUrl ? (
+                      <div className="w-80 h-80 flex items-center justify-center visual-blend">
+                        <dotlottie-wc 
+                          src={feature.lottieUrl} 
+                          style={{width: '320px', height: '320px', backgroundColor: 'transparent'}} 
+                          speed="1" 
+                          autoplay 
+                          loop
+                          background="transparent"
+                        ></dotlottie-wc>
+                      </div>
+                    ) : feature.imageUrl ? (
+                      <div className="w-80 h-80 flex items-center justify-center visual-blend">
+                        <img 
+                          src={feature.imageUrl} 
+                          alt={feature.title} 
+                          className="w-[320px] h-[320px] object-contain image-seamless" 
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-24 h-24 rounded-full bg-gradient-to-r from-primary to-accent text-white flex items-center justify-center visual-blend">
+                        <feature.icon className="w-12 h-12" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </motion.div>
             ))}
